@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const BUFFER_CAPACITY = 512
+const BUFFER_CAPACITY = 4
 
 type RequestLine struct {
 	HttpVersion   string
@@ -27,11 +27,10 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	buffer := make([]byte, BUFFER_CAPACITY)
 	resBuffer := make([]byte, 0, BUFFER_CAPACITY)
 
-	//isFirstLine := true
 	var (
-		endId       int
-		startId     int
-		n           int
+		endId   int
+		startId int
+		//n           int
 		err         error
 		gError      error
 		isFirstLine bool = true
@@ -40,44 +39,71 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	)
 
 	for {
-		n, err = reader.Read(buffer)
+		_, err = reader.Read(buffer)
 		if err != nil || gError != nil {
 			break
 		}
 
-		endId = strings.IndexByte(string(buffer[:n]), '\r')
+		for {
 
-		if endId != -1 {
+			endId = strings.IndexByte(string(buffer[:len(buffer)]), '\r')
 
-			// Merge residual buffer, if any
-			if len(resBuffer) > 0 {
-				// special case: if '\r' char is the last element of the array
-				// then '\n' char, in the next loop, could be present at the first position of the array then we need to skip it
-				if resBuffer[0] == '\n' {
-					startId = 1
+			if endId != -1 {
+
+				if endId > len(buffer) {
+					break
 				}
-				line = buildLine(resBuffer[startId:], buffer[:endId])
-				resBuffer = resBuffer[:0]
-				startId = 0
+
+				// Merge residual buffer, if any
+				if len(resBuffer) > 0 {
+					// special case: if '\r' char is the last element of the array
+					// then '\n' char, in the next loop, could be present at the first position of the array then we need to skip it
+					if resBuffer[0] == '\n' {
+						startId = 1
+					}
+					line = buildLine(resBuffer[startId:], buffer[:endId])
+					resBuffer = resBuffer[:0]
+					startId = 0
+				} else {
+					line = buildLine(nil, buffer[:endId])
+				}
+
+				if line == nil {
+					break
+				}
+
+				// Parser
+				if isFirstLine {
+					request.RequestLine, gError = readRequestLine(line)
+					isFirstLine = false
+				} else if !isFirstLine {
+					k, v = readFieldLine(line)
+					request.Headers[k] = v
+				}
+
+				if gError != nil {
+					break
+				}
+
+				if endId+2 < len(buffer) {
+					//n = len(buffer[endId+2 : n])
+					buffer = buffer[endId+2:]
+				} else {
+					break
+				}
+
 			} else {
-				line = buildLine(nil, buffer[:endId])
+				break
 			}
 
-			// Parser
-			if isFirstLine {
-				request.RequestLine, gError = readRequestLine(line)
-				isFirstLine = false
-			} else if !isFirstLine {
-				k, v = readFieldLine(line)
-				request.Headers[k] = v
-			}
 		}
 
 		if endId == -1 {
-			resBuffer = append(resBuffer, buffer[:n]...)
+			resBuffer = append(resBuffer, buffer[:len(buffer)]...)
 		} else if endId+2 < len(buffer) {
-			resBuffer = append(resBuffer, buffer[endId+2:n]...)
+			resBuffer = append(resBuffer, buffer[endId+2:len(buffer)]...)
 		}
+		//buffer = buffer[:0]
 	}
 
 	return request, gError
@@ -103,6 +129,10 @@ func readFieldLine(l *string) (k string, v string) {
 }
 
 func buildLine(a []byte, b []byte) *string {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+
 	var builder strings.Builder
 	builder.Grow(len(a) + len(b))
 	if a != nil {
