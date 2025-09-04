@@ -6,7 +6,14 @@ import (
 	"strings"
 )
 
-const BUFFER_CAPACITY = 4
+const BUFFER_CAPACITY = 2
+
+type requestState string
+
+const (
+	requestProgress requestState = "progress"
+	requestDone     requestState = "done"
+)
 
 type RequestLine struct {
 	HttpVersion   string
@@ -20,112 +27,113 @@ type Request struct {
 	Body        []byte
 }
 
+func (r *Request) parse(line *string) error {
+	var err error
+	if r.RequestLine == nil {
+		r.RequestLine, err = readRequestLine(line)
+	} else {
+		k, v, lineErr := readFieldLine(line)
+		if lineErr == nil {
+			r.Headers[k] = v
+		}
+	}
+
+	return err
+}
+
+// Read data input with dynamic buffer
+//
+// Outer & Inner loops are inversely proportional
 func RequestFromReader(reader io.Reader) (*Request, error) {
 
 	request := &Request{Headers: make(map[string]string)}
-
 	buffer := make([]byte, BUFFER_CAPACITY)
-	resBuffer := make([]byte, 0, BUFFER_CAPACITY)
 
 	var (
-		endId   int
-		startId int
-		//n           int
-		err         error
-		gError      error
-		isFirstLine bool = true
-		k, v        string
-		line        *string
+		n, startId, endId, resStartId int
+		err, pErr                     error
+		line                          *string
+		resBuffer                     []byte
 	)
 
+outer:
 	for {
-		_, err = reader.Read(buffer)
-		if err != nil || gError != nil {
-			break
+		startId = 0
+		n, err = reader.Read(buffer)
+		if err != nil {
+			break outer
 		}
 
+	inner:
 		for {
 
-			endId = strings.IndexByte(string(buffer[:len(buffer)]), '\r')
+			endId = strings.IndexByte(string(buffer[startId:n]), '\r')
+			if endId == -1 {
+				break inner
+			}
+			endId += startId
 
-			if endId != -1 {
-
-				if endId > len(buffer) {
-					break
+			// Merge residual buffer, if any
+			if len(resBuffer) > 0 {
+				// special case: if '\r' char is the last element of the array
+				// then '\n' char, in the next loop, could be present at the first position of the array then we need to skip it
+				if resBuffer[0] == '\n' {
+					resStartId = 1
 				}
-
-				// Merge residual buffer, if any
-				if len(resBuffer) > 0 {
-					// special case: if '\r' char is the last element of the array
-					// then '\n' char, in the next loop, could be present at the first position of the array then we need to skip it
-					if resBuffer[0] == '\n' {
-						startId = 1
-					}
-					line = buildLine(resBuffer[startId:], buffer[:endId])
-					resBuffer = resBuffer[:0]
-					startId = 0
-				} else {
-					line = buildLine(nil, buffer[:endId])
-				}
-
-				if line == nil {
-					break
-				}
-
-				// Parser
-				if isFirstLine {
-					request.RequestLine, gError = readRequestLine(line)
-					isFirstLine = false
-				} else if !isFirstLine {
-					k, v = readFieldLine(line)
-					request.Headers[k] = v
-				}
-
-				if gError != nil {
-					break
-				}
-
-				if endId+2 < len(buffer) {
-					//n = len(buffer[endId+2 : n])
-					buffer = buffer[endId+2:]
-				} else {
-					break
-				}
-
+				line = buildLine(resBuffer[resStartId:], buffer[startId:endId])
+				resBuffer = resBuffer[:0]
+				resStartId = 0
 			} else {
-				break
+				line = buildLine(nil, buffer[startId:endId])
 			}
 
+			if line == nil {
+				break inner
+			}
+
+			pErr = request.parse(line)
+			if pErr != nil {
+				break outer
+			}
+
+			if endId+2 > len(buffer) {
+				break inner
+			}
+
+			startId = endId + 2
 		}
 
+		// Accumulate residual buffer if bufferSize is very small
 		if endId == -1 {
-			resBuffer = append(resBuffer, buffer[:len(buffer)]...)
+			resBuffer = append(resBuffer, buffer[startId:]...)
 		} else if endId+2 < len(buffer) {
-			resBuffer = append(resBuffer, buffer[endId+2:len(buffer)]...)
+			resBuffer = append(resBuffer, buffer[endId+2:]...)
 		}
-		//buffer = buffer[:0]
 	}
 
-	return request, gError
+	return request, pErr
 }
 
 func readRequestLine(l *string) (*RequestLine, error) {
-	requestLine := &RequestLine{}
 	splt := strings.Split(*l, " ")
 	if len(splt) < 3 {
 		return nil, fmt.Errorf("[Read Request Line] invalid number of parts in request line. current: %v Requested: (Method  target  http version)", splt)
 	}
+	requestLine := &RequestLine{}
 	requestLine.Method = splt[0]
 	requestLine.RequestTarget = splt[1]
 	requestLine.HttpVersion = strings.TrimPrefix(splt[2], "HTTP/")
 	return requestLine, nil
 }
 
-func readFieldLine(l *string) (k string, v string) {
+func readFieldLine(l *string) (k string, v string, e error) {
 	idx := strings.IndexByte(*l, ':')
+	if idx == -1 {
+		return "", "", fmt.Errorf("It cannot possible extract key value because the ':' is missing")
+	}
 	key := strings.TrimSpace((*l)[:idx])
 	value := strings.TrimSpace((*l)[idx+1:])
-	return key, value
+	return key, value, nil
 }
 
 func buildLine(a []byte, b []byte) *string {
