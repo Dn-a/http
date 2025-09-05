@@ -1,12 +1,13 @@
 package request
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
 )
 
-const BUFFER_CAPACITY = 2
+const BUFFER_CAPACITY = 5
 
 type requestState string
 
@@ -67,7 +68,7 @@ outer:
 	inner:
 		for {
 
-			endId = strings.IndexByte(string(buffer[startId:n]), '\r')
+			endId = bytes.IndexByte(buffer[startId:n], '\r')
 			if endId == -1 {
 				break inner
 			}
@@ -96,7 +97,7 @@ outer:
 				break outer
 			}
 
-			if endId+2 > len(buffer) {
+			if endId+2 > n {
 				break inner
 			}
 
@@ -105,9 +106,9 @@ outer:
 
 		// Accumulate residual buffer if bufferSize is very small
 		if endId == -1 {
-			resBuffer = append(resBuffer, buffer[startId:]...)
-		} else if endId+2 < len(buffer) {
-			resBuffer = append(resBuffer, buffer[endId+2:]...)
+			resBuffer = append(resBuffer, buffer[startId:n]...)
+		} else if endId+2 < n {
+			resBuffer = append(resBuffer, buffer[endId+2:n]...)
 		}
 	}
 
