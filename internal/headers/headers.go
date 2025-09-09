@@ -22,7 +22,7 @@ func (h Headers) Parse(data []byte) (n int, done bool, er error) {
 		err            error
 	)
 
-	for i := 0; i < len(data); i++ {
+	for i := range data {
 		if data[i] == CR_DELIMETER {
 			endId = i
 		} else {
@@ -47,7 +47,7 @@ func parseHeader(line []byte) (string, string, error) {
 	splt := bytes.SplitN(line, []byte{':'}, 2)
 
 	if len(splt) != 2 || bytes.HasSuffix(splt[0], []byte{' '}) {
-		return "", "", fmt.Errorf("Malformed Header.")
+		return "", "", fmt.Errorf("malformed Header")
 	}
 
 	key := string(splt[0])
