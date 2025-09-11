@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const BUFFER_CAPACITY = 2
+const BUFFER_CAPACITY = 1024
 const CR_DELIMETER = '\r'
 
 type requestState string
@@ -30,11 +30,13 @@ type Request struct {
 
 func (r *Request) parse(line *string) error {
 	var err error
-	if r.RequestLine == nil {
+	if line == nil || *line == "" {
+		// do nothing
+	} else if r.RequestLine == nil {
 		r.RequestLine, err = readRequestLine(line)
 	} else {
-		k, v, lineErr := readFieldLine(line)
-		if lineErr == nil {
+		k, v, err := readFieldLine(line)
+		if err == nil {
 			r.Headers[k] = v
 		}
 	}
@@ -72,51 +74,33 @@ outer:
 				break inner
 			}
 
-			//TODO: to be removed
-			// endId = bytes.IndexByte(buffer[startId:n], DELIMETER)
-
-			// below: more efficient way (avoid the useless above loop buffer)
 			if buffer[i] == CR_DELIMETER {
 				endId = i
 			} else {
 				endId = -1
+				continue
 			}
 
-			if endId != -1 {
-
-				// TODO: to be removed (not needed anymore)
-				// EG: G E T   /  \r\n   H  T  T  P \r  \n  c
-				//	   0|1|2|3|4|5|6|7|8|9|10|11|12|13|14|15|16
-				//
-				// step1 -> endId = 6 | startId = endId + 2 = 6 + 2
-				// step2 -> endId += startdId = 5 + 8
-				//endId += startId
-
-				// Merge residual buffer, if any
-				if len(resBuffer) > 0 {
-					// special case: if '\r' char is the last element of the array
-					// then '\n' char, in the next loop, could be present at the first position of the array then we need to skip it
-					if resBuffer[0] == '\n' {
-						resStartId = 1
-					}
-					line = buildLine(resBuffer[resStartId:], buffer[startId:endId])
-					resBuffer = resBuffer[:0]
-					resStartId = 0
-				} else {
-					line = buildLine(nil, buffer[startId:endId])
+			// Merge residual buffer, if any
+			if len(resBuffer) > 0 {
+				// special case: if '\r' char is the last element of the array
+				// then '\n' char, in the next loop, could be present at the first position of the array then we need to skip it
+				if resBuffer[0] == '\n' {
+					resStartId = 1
 				}
-
-				if line == nil {
-					break inner
-				}
-
-				pErr = request.parse(line)
-				if pErr != nil {
-					break outer
-				}
-
-				startId = endId + 2
+				line = buildLine(resBuffer[resStartId:], buffer[startId:endId])
+				resBuffer = resBuffer[:0]
+				resStartId = 0
+			} else {
+				line = buildLine(nil, buffer[startId:endId])
 			}
+
+			pErr = request.parse(line)
+			if pErr != nil {
+				break outer
+			}
+
+			startId = endId + 2
 		}
 
 		// Accumulate residual buffer if bufferSize is very small
