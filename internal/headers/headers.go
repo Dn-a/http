@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// Carriage-return
 const CR_DELIMETER = '\r'
 
 type Headers struct {
