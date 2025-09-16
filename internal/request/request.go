@@ -1,12 +1,14 @@
 package request
 
 import (
+	"bytes"
 	"fmt"
+	"http/internal/headers"
 	"io"
 	"strings"
 )
 
-const BUFFER_CAPACITY = 1024
+const BUFFER_CAPACITY = 5
 const CR_DELIMETER = '\r'
 
 type requestState string
@@ -24,20 +26,24 @@ type RequestLine struct {
 
 type Request struct {
 	RequestLine *RequestLine
-	Headers     map[string]string
+	Headers     *headers.Headers
 	Body        []byte
 }
 
-func (r *Request) parse(line *string) error {
+func NewRequest() *Request {
+	return &Request{Headers: headers.NewHeaders()}
+}
+
+func (r *Request) parse(line []byte) error {
 	var err error
-	if line == nil || *line == "" {
+	if len(line) == 0 {
 		// do nothing
 	} else if r.RequestLine == nil {
 		r.RequestLine, err = readRequestLine(line)
 	} else {
 		k, v, err := readFieldLine(line)
 		if err == nil {
-			r.Headers[k] = v
+			r.Headers.Set(k, v)
 		}
 	}
 
@@ -49,14 +55,13 @@ func (r *Request) parse(line *string) error {
 // Outer & Inner loops are inversely proportional
 func RequestFromReader(reader io.Reader) (*Request, error) {
 
-	request := &Request{Headers: make(map[string]string)}
+	request := NewRequest()
 	buffer := make([]byte, BUFFER_CAPACITY)
 
 	var (
 		n, startId, endId, resStartId int
 		err, pErr                     error
-		line                          *string
-		resBuffer                     []byte
+		line, resBuffer               []byte
 	)
 
 outer:
@@ -114,41 +119,35 @@ outer:
 	return request, pErr
 }
 
-func readRequestLine(l *string) (*RequestLine, error) {
-	splt := strings.Split(*l, " ")
+func readRequestLine(l []byte) (*RequestLine, error) {
+	splt := bytes.Split(l, []byte{' '})
 	if len(splt) < 3 {
 		return nil, fmt.Errorf("[Read Request Line] invalid number of parts in request line. current: %v Requested: (Method  target  http version)", splt)
 	}
 	requestLine := &RequestLine{}
-	requestLine.Method = splt[0]
-	requestLine.RequestTarget = splt[1]
-	requestLine.HttpVersion = strings.TrimPrefix(splt[2], "HTTP/")
+	requestLine.Method = string(splt[0])
+	requestLine.RequestTarget = string(splt[1])
+	requestLine.HttpVersion = strings.TrimPrefix(string(splt[2]), "HTTP/")
 	return requestLine, nil
 }
 
-func readFieldLine(l *string) (k string, v string, e error) {
-	idx := strings.IndexByte(*l, ':')
+func readFieldLine(l []byte) (k []byte, v []byte, e error) {
+	idx := bytes.IndexByte(l, ':')
 	if idx == -1 {
-		return "", "", fmt.Errorf("It cannot possible extract key value because the ':' is missing")
+		return nil, nil, fmt.Errorf("it cannot possible extract key value because the ':' is missing")
 	}
-	key := strings.TrimSpace((*l)[:idx])
-	value := strings.TrimSpace((*l)[idx+1:])
+	key := bytes.TrimSpace(l[:idx])
+	value := bytes.TrimSpace(l[idx+1:])
 	return key, value, nil
 }
 
-func buildLine(a []byte, b []byte) *string {
+func buildLine(a []byte, b []byte) []byte {
 	if len(a) == 0 && len(b) == 0 {
 		return nil
 	}
 
-	var builder strings.Builder
-	builder.Grow(len(a) + len(b))
-	if a != nil {
-		builder.Write(a)
-	}
-	if b != nil {
-		builder.Write(b)
-	}
-	str := builder.String()
-	return &str
+	line := make([]byte, len(a)+len(b))
+	copy(line, a)
+	copy(line[len(a):], b)
+	return line
 }
