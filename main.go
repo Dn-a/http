@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"http/internal/request"
 	"io"
 	"log"
 	"net"
@@ -15,27 +16,39 @@ const TIMEOUT = 10
 
 func main() {
 
-	/* f := getFile("m.txt")
-	defer f.Close() */
-
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", SERVER_PORT))
 
 	if err != nil {
 		log.Fatal("Listener error: ", err)
 	}
-	fmt.Printf("Server started on %d\n", SERVER_PORT)
+	fmt.Printf("Server started on %d\n\n", SERVER_PORT)
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			break
+			log.Fatal("Connection Error: ", err)
 		}
 
-		func(c net.Conn) {
+		fmt.Printf("New connection: %v", conn.RemoteAddr())
+
+		// Anonymous function executed as goroutine - enables concurrent handling
+		// of multiple client connections.
+		go func(c net.Conn) {
 			defer c.Close()
-			for line := range getLinesChannel(c) {
-				fmt.Printf("%s", line)
+			r, err := request.RequestFromReader(conn)
+			if err != nil {
+				log.Fatal("Request error: ", err)
 			}
+
+			fmt.Println("Request Line:")
+			fmt.Printf("- Method: %s\n", r.RequestLine.Method)
+			fmt.Printf("- Target: %s\n", r.RequestLine.RequestTarget)
+			fmt.Printf("- Version: %s\n", r.RequestLine.HttpVersion)
+			fmt.Println("Headers:")
+			r.Headers.ForEach(func(k, v string) {
+				fmt.Printf("- %s: %s\n", k, v)
+			})
+
 		}(conn)
 
 		// ANSI escape sequence to clear terminal
@@ -44,6 +57,7 @@ func main() {
 
 }
 
+// to be removed
 func getFile(fName string) *os.File {
 	f, err := os.Open(fName)
 	if err != nil {
@@ -52,6 +66,7 @@ func getFile(fName string) *os.File {
 	return f
 }
 
+// to be removed
 func getLinesChannel(f io.ReadCloser) <-chan string {
 	out := make(chan string, 1)
 	go func() {

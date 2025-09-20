@@ -9,6 +9,9 @@ import (
 // Carriage-return
 const CR_DELIMETER = '\r'
 
+// Line-feed
+const LN_DELIMETER = '\n'
+
 type Headers struct {
 	headers map[string]string
 }
@@ -23,46 +26,66 @@ func (h *Headers) Get(v string) string {
 	return h.headers[strings.ToLower(v)]
 }
 
-func (h *Headers) Set(k []byte, v []byte) error {
-	if ok, c := isToken(k); !ok {
-		return fmt.Errorf("field-value header doesn't contains a valid characters: %c", c)
+func (h *Headers) Set(k []byte, v []byte) bool {
+	if k != nil && v != nil {
+		h.headers[strings.ToLower(string(k))] = string(v)
+		return true
 	}
-	h.headers[strings.ToLower(string(k))] = string(v)
-	return nil
+	return false
 }
 
-func (h *Headers) Parse(data []byte) (n int, done bool, er error) {
+// to be removed
+func (h *Headers) ParseAll(data []byte) (read int, done bool, er error) {
 
 	var (
-		read           int = 0
 		startId, endId int
 		k, v           []byte
 		err            error
-		check          bool = true
+		check          bool
 	)
 
 	for i := range data {
 
-		if data[i] == CR_DELIMETER {
+		if data[i] == CR_DELIMETER && data[(i+1)%len(data)] == LN_DELIMETER {
 			endId = i
 		} else {
 			continue
 		}
 
-		if k, v, err = parseHeader(data[startId:endId]); err != nil {
-			check = false
+		if k, v, err = parseHeader(data[startId:endId]); err == nil {
+			if k != nil {
+				h.Set(k, v)
+			} else {
+				// HEADER is EMPTY
+				check = true
+			}
+		} else {
 			break
 		}
-
-		if err = h.Set(k, v); err != nil {
-			check = false
-			break
-		}
-
-		read += len(k) + len(v) + 2
 		startId = endId + 2
 	}
-	return read, check, err
+	return startId, check, err
+}
+
+func (h *Headers) Parse(data []byte) (read int, er error) {
+
+	var (
+		rd   int = 0
+		k, v []byte
+		err  error
+	)
+
+	if k, v, err = parseHeader(data); err == nil {
+		h.Set(k, v)
+	}
+
+	return rd, err
+}
+
+func (h *Headers) ForEach(cb func(k, v string)) {
+	for k, v := range h.headers {
+		cb(k, v)
+	}
 }
 
 func parseHeader(line []byte) ([]byte, []byte, error) {
@@ -75,11 +98,17 @@ func parseHeader(line []byte) ([]byte, []byte, error) {
 		return nil, nil, fmt.Errorf("malformed Header")
 	}
 
-	return splt[0], bytes.TrimSpace(splt[1]), nil
+	k, v := bytes.TrimSpace(splt[0]), bytes.TrimSpace(splt[1])
+
+	if ok, c := isToken(k); !ok {
+		return nil, nil, fmt.Errorf("field-value header doesn't contains a valid characters: %c", c)
+	}
+
+	return k, v, nil
 }
 
-// file-value VALIDATOR
-var specialChars = []byte{'!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~', ':', ' ', '\r', '\n'}
+// field-value VALIDATOR
+var specialChars = []byte{'!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~'}
 
 func isToken(chars []byte) (bool, byte) {
 	for _, c := range chars {
