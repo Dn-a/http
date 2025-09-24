@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"http/internal/request"
+	"http/internal/response"
 	"http/internal/server"
+	"io"
 	"log"
 	"log/slog"
 	"os"
@@ -13,7 +16,7 @@ import (
 const port = 3030
 
 func main() {
-	server, err := server.Serve(port)
+	server, err := server.Serve(port, handler)
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
@@ -26,4 +29,20 @@ func main() {
 	<-sigChan
 	fmt.Println()
 	slog.Info("Server gracefully stopped")
+}
+
+func handler(w io.Writer, r *request.Request) *server.HandlerError {
+	switch r.RequestLine.RequestTarget {
+	case "/bad":
+		return &server.HandlerError{StatusCode: response.NOT_FOUND, Message: []byte("Nothing to say :(")}
+	case "/server-error":
+		return &server.HandlerError{StatusCode: response.INTERNAL_SERVER_ERROR, Message: []byte("My bad :|")}
+	default:
+		message := "Good!"
+		r.PrintRequest()
+		response.WriteStatusLine(w, response.OK)
+		response.WriteHeaders(w, response.GetDefaultHeaders(len(message)))
+		response.WriteBody(w, []byte(message))
+	}
+	return nil
 }
