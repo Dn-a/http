@@ -15,6 +15,7 @@ type StatusCode struct {
 var (
 	OK                    StatusCode = StatusCode{"OK", 200}
 	BAD_REQUEST           StatusCode = StatusCode{"Bad Request", 400}
+	NOT_FOUND             StatusCode = StatusCode{"Not Found", 404}
 	INTERNAL_SERVER_ERROR StatusCode = StatusCode{"Internal Server Error", 500}
 )
 
@@ -25,11 +26,17 @@ func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 	return nil
 }
 
-func WriteHeaders(w io.Writer, headers headers.Headers) error {
+func WriteHeaders(w io.Writer, headers *headers.Headers) error {
 	headers.ForEach(func(k, v string) {
 		fmt.Fprintf(w, "%v: %v\r\n", k, v)
 	})
+	fmt.Fprint(w, "\r\n")
 	return nil
+}
+
+func WriteBody(w io.Writer, data []byte) error {
+	_, err := w.Write(data)
+	return err
 }
 
 func GetDefaultHeaders(contentLen int) *headers.Headers {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"http/internal/request"
 	"http/internal/response"
+	"io"
 	"log"
 	"log/slog"
 	"net"
@@ -12,16 +13,25 @@ import (
 type Server struct {
 	state    string
 	listener net.Listener
+	handler  Handler
 }
+
+type HandlerError struct {
+	StatusCode response.StatusCode
+	Message    []byte
+}
+
+type Handler func(w io.Writer, req *request.Request) *HandlerError
 
 func NewServer() *Server {
 	return &Server{}
 }
 
-func Serve(port uint16) (*Server, error) {
+func Serve(port uint16, handler Handler) (*Server, error) {
 	server := NewServer()
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	server.listener = listener
+	server.handler = handler
 
 	go server.listen()
 
@@ -53,10 +63,10 @@ func (s *Server) handle(c net.Conn) {
 		log.Fatal("Request error: ", err)
 	}
 
-	request.PrintRequest()
-
-	// Response
-	response.WriteStatusLine(c, response.OK)
-	response.WriteHeaders(c, *response.GetDefaultHeaders(0))
-
+	if hErr := s.handler(c, request); hErr != nil {
+		request.PrintRequest()
+		response.WriteStatusLine(c, hErr.StatusCode)
+		response.WriteHeaders(c, response.GetDefaultHeaders(len(hErr.Message)))
+		response.WriteBody(c, hErr.Message)
+	}
 }
