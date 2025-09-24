@@ -29,30 +29,34 @@ func main() {
 			log.Fatal("Connection Error: ", err)
 		}
 
-		fmt.Printf("New connection: %v", conn.RemoteAddr())
+		fmt.Printf("New connection: %v\n", conn.RemoteAddr())
 
 		// Anonymous function executed as goroutine - enables concurrent handling
 		// of multiple client connections.
 		go func(c net.Conn) {
 			defer c.Close()
-			r, err := request.RequestFromReader(conn)
+			request, err := request.RequestFromReader(c)
 			if err != nil {
 				log.Fatal("Request error: ", err)
 			}
 
 			fmt.Println("Request Line:")
-			fmt.Printf("- Method: %s\n", r.RequestLine.Method)
-			fmt.Printf("- Target: %s\n", r.RequestLine.RequestTarget)
-			fmt.Printf("- Version: %s\n", r.RequestLine.HttpVersion)
+			fmt.Printf("- Method: %s\n", request.RequestLine.Method)
+			fmt.Printf("- Target: %s\n", request.RequestLine.RequestTarget)
+			fmt.Printf("- Version: %s\n", request.RequestLine.HttpVersion)
 			fmt.Println("Headers:")
-			r.Headers.ForEach(func(k, v string) {
+			request.Headers.ForEach(func(k, v string) {
 				fmt.Printf("- %s: %s\n", k, v)
 			})
+			fmt.Printf("Body:\n%s", string(request.Body))
+
+			response := "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nHello!"
+			conn.Write([]byte(response))
 
 		}(conn)
 
 		// ANSI escape sequence to clear terminal
-		fmt.Print("\033[2J\033[H")
+		//fmt.Print("\033[2J\033[H")
 	}
 
 }

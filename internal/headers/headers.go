@@ -3,6 +3,7 @@ package headers
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -26,15 +27,24 @@ func (h *Headers) Get(v string) string {
 	return h.headers[strings.ToLower(v)]
 }
 
-func (h *Headers) Set(k []byte, v []byte) bool {
-	if k != nil && v != nil {
-		h.headers[strings.ToLower(string(k))] = string(v)
+func (h *Headers) GetContentLength() int {
+	len := h.Get("Content-Length")
+	if len == "" {
+		return 0
+	}
+	val, _ := strconv.Atoi(len)
+	return val
+}
+
+func (h *Headers) Set(k string, v string) bool {
+	if k != "" && v != "" {
+		h.headers[strings.ToLower(k)] = v
 		return true
 	}
 	return false
 }
 
-// to be removed
+// Parse bytes that should contains valid field-value and line-separator (\r\n)
 func (h *Headers) ParseAll(data []byte) (read int, done bool, er error) {
 
 	var (
@@ -54,9 +64,9 @@ func (h *Headers) ParseAll(data []byte) (read int, done bool, er error) {
 
 		if k, v, err = parseHeader(data[startId:endId]); err == nil {
 			if k != nil {
-				h.Set(k, v)
+				h.Set(string(k), string(v))
 			} else {
-				// HEADER is EMPTY
+				// HEADER is EMPTY, so we assume there are no more headers to parse
 				check = true
 			}
 		} else {
@@ -67,6 +77,7 @@ func (h *Headers) ParseAll(data []byte) (read int, done bool, er error) {
 	return startId, check, err
 }
 
+// Parse single header without \r\n
 func (h *Headers) Parse(data []byte) (read int, er error) {
 
 	var (
@@ -76,7 +87,7 @@ func (h *Headers) Parse(data []byte) (read int, er error) {
 	)
 
 	if k, v, err = parseHeader(data); err == nil {
-		h.Set(k, v)
+		h.Set(string(k), string(v))
 	}
 
 	return rd, err

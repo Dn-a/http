@@ -21,6 +21,7 @@ type RequestState string
 const (
 	RequestInit    RequestState = "init"
 	RequestHeaders RequestState = "headers"
+	RequestBody    RequestState = "body"
 	RequestDone    RequestState = "done"
 	RequestError   RequestState = "error"
 )
@@ -32,10 +33,12 @@ type RequestLine struct {
 }
 
 type Request struct {
+	Body        []byte
+	Headers     *headers.Headers
 	state       RequestState
 	RequestLine *RequestLine
-	Headers     *headers.Headers
-	Body        []byte
+	bodyRead    int
+	isEof       bool
 }
 
 func NewRequest() *Request {
@@ -44,18 +47,19 @@ func NewRequest() *Request {
 
 func (r *Request) parse(line []byte) (int, error) {
 	var (
-		rd, read   int
-		err        error
-		curretLine []byte
-		done       bool
+		curretLine               []byte
+		err                      error
+		rd, read, curretLineSize int
+		done                     bool
 	)
 
 outer:
 	for {
 		curretLine = line[read:]
+		curretLineSize = len(curretLine)
 		switch r.state {
 		case RequestError:
-			break outer
+			return 0, fmt.Errorf("general error during parsing request")
 		case RequestInit:
 			r.RequestLine, rd, err = readRequestLine(curretLine)
 			if err != nil {
@@ -63,6 +67,7 @@ outer:
 				break outer
 			}
 
+			// when rd == 0, there isn't enough data in the buffer to build the requestLine
 			if rd == 0 {
 				break outer
 			}
@@ -76,19 +81,41 @@ outer:
 				break outer
 			}
 
-			if rd == 0 {
+			// If parsing reaches the last field-line, we can assume there are no other field-lines
+			// e.g.: accept: */*\r\n\r\n -> The double CRLF (\r\n\r\n) is the proper delimiter
+			// between HTTP headers and message body according to RFC 7230
+			if done && r.Headers.GetContentLength() == 0 {
+				r.state = RequestDone
+			} else if done && r.Headers.GetContentLength() > 0 {
+				r.state = RequestBody
+			} else if rd == 0 {
+				// when rd == 0, there isn't enough data in the buffer to build the header
 				break outer
 			}
-
 			read += rd
+		case RequestBody:
+			length := r.Headers.GetContentLength()
 
-			if done {
-				r.state = RequestDone
+			if r.Body == nil {
+				r.Body = make([]byte, length)
 			}
+			copy(r.Body[r.bodyRead:], curretLine)
 
+			r.bodyRead += curretLineSize
+			read += curretLineSize
+
+			if r.bodyRead > length || (r.isEof && r.bodyRead < length) {
+				err = fmt.Errorf("body cannot be shorter or greater then Content-length.\n - content-length: %v\n - bodyRead: %v", length, r.bodyRead)
+				r.state = RequestError
+				break outer
+			} else if r.bodyRead == length || r.isEof {
+				r.state = RequestDone
+			} else if read >= curretLineSize {
+				break outer
+			}
 		case RequestDone:
+			fmt.Println("All data are consumed correctly")
 			break outer
-
 		default:
 			panic("You are idiot")
 		}
@@ -98,27 +125,28 @@ outer:
 }
 
 // Read data input with dynamic buffer
-//
-// Outer & Inner loops are inversely proportional
 func RequestFromReader(reader io.Reader) (*Request, error) {
 
 	request := NewRequest()
 	buffer := make([]byte, BUFFER_CAPACITY)
 
 	var (
-		n, read, startId int
 		err, pErr        error
+		n, read, startId int
 	)
 
 outer:
 	for request.state != RequestDone {
+
 		n, err = reader.Read(buffer[startId:])
 		if err != nil {
-			break outer
+			request.isEof = true
 		}
 
 		startId += n
+
 		// read is number of processed byte
+		// 	- read <= startId
 		read, pErr = request.parse(buffer[:startId])
 		if pErr != nil {
 			break outer
@@ -126,7 +154,7 @@ outer:
 
 		// moves unprocessed data to the left, freeing up the buffer for new data
 		if read > 0 {
-			copy(buffer, buffer[read:])
+			copy(buffer, buffer[read:startId])
 			startId -= read
 		}
 
@@ -150,4 +178,16 @@ func readRequestLine(l []byte) (*RequestLine, int, error) {
 	requestLine.RequestTarget = string(splt[1])
 	requestLine.HttpVersion = strings.TrimPrefix(string(splt[2]), "HTTP/")
 	return requestLine, read + 2, nil
+}
+
+func (r *Request) PrintRequest() {
+	fmt.Println("Request Line:")
+	fmt.Printf("- Method: %s\n", r.RequestLine.Method)
+	fmt.Printf("- Target: %s\n", r.RequestLine.RequestTarget)
+	fmt.Printf("- Version: %s\n", r.RequestLine.HttpVersion)
+	fmt.Println("Headers:")
+	r.Headers.ForEach(func(k, v string) {
+		fmt.Printf("- %s: %s\n", k, v)
+	})
+	fmt.Printf("Body:\n%s\n", string(r.Body))
 }
