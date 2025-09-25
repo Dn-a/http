@@ -8,14 +8,11 @@ import (
 )
 
 type StatusCode struct {
-	reason string
-	code   uint16
+	Reason string
+	Code   uint16
 }
 type Response struct {
-	headers *headers.Headers
-	body    []byte
-	Writer  io.Writer
-	status  *StatusCode
+	Writer io.Writer
 }
 
 var (
@@ -27,33 +24,37 @@ var (
 
 const HTTP_VERSION = "HTTP/1.1"
 
-func (res *Response) Status(s *StatusCode) {
-	res.status = s
-}
+const DELIMITER = "\r\n"
 
-func (res *Response) Headers(h *headers.Headers) {
-	res.headers = h
-}
-func (res *Response) Body(b []byte) {
-	res.body = append(b, '\n')
-}
+func (res *Response) Write(status *StatusCode, currentHeaders *headers.Headers, body []byte) {
+	if status == nil {
+		status = &OK
+	}
+	writeStatusLine(res.Writer, status)
 
-func (res *Response) Write() {
-	if res.status == nil {
-		res.status = &OK
+	if currentHeaders == nil {
+		currentHeaders = GetDefaultHeaders(len(body))
+	} else if currentHeaders.GetContentLength() == 0 && len(body) > 0 {
+		currentHeaders.Set(headers.CONTENT_LENGTH, strconv.Itoa(len(body)))
 	}
-	writeStatusLine(res.Writer, *res.status)
-	if res.headers == nil {
-		res.headers = GetDefaultHeaders(len(res.body))
-	}
-	writeHeaders(res.Writer, res.headers)
-	if len(res.body) > 0 {
-		writeBody(res.Writer, res.body)
+	writeHeaders(res.Writer, currentHeaders)
+
+	if len(body) > 0 {
+		writeBody(res.Writer, body)
 	}
 }
 
-func writeStatusLine(w io.Writer, statusCode StatusCode) error {
-	fmt.Fprintf(w, "%v %v %v\r\n", HTTP_VERSION, statusCode.code, statusCode.reason)
+func (r *Response) WriteChunkedBody(size []byte, p []byte) (int, error) {
+	r.Writer.Write(size)
+	return r.Writer.Write(append(p, []byte(DELIMITER)...))
+}
+func (r *Response) WriteChunkedBodyDone() (int, error) {
+	r.Writer.Write([]byte{'0', '\r', '\n', '\r', '\n'})
+	return 0, nil
+}
+
+func writeStatusLine(w io.Writer, statusCode *StatusCode) error {
+	fmt.Fprintf(w, "%v %v %v\r\n", HTTP_VERSION, statusCode.Code, statusCode.Reason)
 	return nil
 }
 
@@ -72,8 +73,8 @@ func writeBody(w io.Writer, data []byte) error {
 
 func GetDefaultHeaders(contentLen int) *headers.Headers {
 	h := headers.NewHeaders()
-	h.Set("Content-Type", "text/plain")
-	h.Set("Content-Length", strconv.Itoa(contentLen))
+	h.Set(headers.CONTENT_TYPE, "text/plain")
+	h.Set(headers.CONTENT_LENGTH, strconv.Itoa(contentLen))
 	h.Set("Connection", "close")
 	return h
 }

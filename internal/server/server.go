@@ -2,25 +2,47 @@ package server
 
 import (
 	"fmt"
+	"http/internal/headers"
 	"http/internal/request"
 	"http/internal/response"
 	"log"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 )
+
+type Handler func(res *response.Response, req *request.Request) *HandlerError
+type HandlerError struct {
+	StatusCode *response.StatusCode
+	Message    []byte
+}
+
+func (he *HandlerError) Write(res *response.Response) {
+	var (
+		body           []byte
+		currentHeaders *headers.Headers
+		err            error
+	)
+	if he.Message == nil {
+		if body, err = os.ReadFile(filepath.Join("internal", "error", fmt.Sprintf("%d.html", he.StatusCode.Code))); err != nil {
+			fmt.Println(err)
+			body = []byte("Unprocessed error.")
+		} else {
+			currentHeaders = response.GetDefaultHeaders(len(body))
+			currentHeaders.Set(headers.CONTENT_TYPE, "text/html")
+		}
+	} else {
+		body = fmt.Appendf(nil, "{\"statusCode\":%d, \"errorMessage\":\"%s\"}\n", he.StatusCode.Code, he.Message)
+	}
+	res.Write(he.StatusCode, currentHeaders, body)
+}
 
 type Server struct {
 	closed   bool
 	listener net.Listener
 	handler  Handler
 }
-
-type HandlerError struct {
-	StatusCode response.StatusCode
-	Message    []byte
-}
-
-type Handler func(res *response.Response, req *request.Request) *HandlerError
 
 func Serve(port uint16, handler Handler) (*Server, error) {
 	server := &Server{closed: false, handler: handler}
@@ -44,9 +66,9 @@ func (s *Server) listen() {
 		if s.closed {
 			fmt.Println("Server closed")
 			break
-		}
-		if err != nil {
+		} else if err != nil {
 			log.Fatal("Connection Error: ", err)
+			continue
 		}
 
 		slog.Info("New clinet", "addr", conn.RemoteAddr())
@@ -55,20 +77,26 @@ func (s *Server) listen() {
 	}
 }
 
-func (s *Server) handle(c net.Conn) {
-	defer c.Close()
+func (s *Server) handle(conn net.Conn) {
+	defer conn.Close()
 
-	request, err := request.RequestFromReader(c)
+	resp := &response.Response{Writer: conn}
+	request, err := request.RequestFromReader(conn)
+
 	if err != nil {
-		log.Fatal("Request error: ", err)
+		fmt.Printf("Request error: %v", err)
+		hErr := &HandlerError{
+			StatusCode: &response.BAD_REQUEST,
+			Message:    []byte(err.Error()),
+		}
+		hErr.Write(resp)
+		return
 	}
 
-	resp := &response.Response{Writer: c}
+	hErr := s.handler(resp, request)
 
-	if hErr := s.handler(resp, request); hErr != nil {
+	if hErr != nil {
 		request.PrintRequest()
-		resp.Status(&hErr.StatusCode)
-		resp.Body(hErr.Message)
-		resp.Write()
+		hErr.Write(resp)
 	}
 }

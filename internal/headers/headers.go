@@ -13,6 +13,11 @@ const CR_DELIMETER = '\r'
 // Line-feed
 const LN_DELIMETER = '\n'
 
+var (
+	CONTENT_LENGTH = "Content-length"
+	CONTENT_TYPE   = "Content-type"
+)
+
 type Headers struct {
 	headers map[string]string
 }
@@ -28,7 +33,7 @@ func (h *Headers) Get(v string) string {
 }
 
 func (h *Headers) GetContentLength() int {
-	len := h.Get("Content-Length")
+	len := h.Get(CONTENT_LENGTH)
 	if len == "" {
 		return 0
 	}
