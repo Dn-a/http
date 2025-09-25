@@ -5,7 +5,6 @@ import (
 	"http/internal/request"
 	"http/internal/response"
 	"http/internal/server"
-	"io"
 	"log"
 	"log/slog"
 	"os"
@@ -31,18 +30,18 @@ func main() {
 	slog.Info("Server gracefully stopped")
 }
 
-func handler(w io.Writer, r *request.Request) *server.HandlerError {
-	switch r.RequestLine.RequestTarget {
-	case "/bad":
+func handler(res *response.Response, req *request.Request) *server.HandlerError {
+	switch req.RequestLine.RequestTarget {
+	case "/not":
 		return &server.HandlerError{StatusCode: response.NOT_FOUND, Message: []byte("Nothing to say :(")}
 	case "/server-error":
 		return &server.HandlerError{StatusCode: response.INTERNAL_SERVER_ERROR, Message: []byte("My bad :|")}
 	default:
 		message := "Good!"
-		r.PrintRequest()
-		response.WriteStatusLine(w, response.OK)
-		response.WriteHeaders(w, response.GetDefaultHeaders(len(message)))
-		response.WriteBody(w, []byte(message))
+		req.PrintRequest()
+		res.Status(&response.OK)
+		res.Body([]byte(message))
+		res.Write()
 	}
 	return nil
 }
