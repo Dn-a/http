@@ -4,14 +4,13 @@ import (
 	"fmt"
 	"http/internal/request"
 	"http/internal/response"
-	"io"
 	"log"
 	"log/slog"
 	"net"
 )
 
 type Server struct {
-	state    string
+	closed   bool
 	listener net.Listener
 	handler  Handler
 }
@@ -21,17 +20,13 @@ type HandlerError struct {
 	Message    []byte
 }
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
-
-func NewServer() *Server {
-	return &Server{}
-}
+type Handler func(res *response.Response, req *request.Request) *HandlerError
 
 func Serve(port uint16, handler Handler) (*Server, error) {
-	server := NewServer()
+	server := &Server{closed: false, handler: handler}
+
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	server.listener = listener
-	server.handler = handler
 
 	go server.listen()
 
@@ -39,12 +34,17 @@ func Serve(port uint16, handler Handler) (*Server, error) {
 }
 
 func (s *Server) Close() error {
+	s.closed = true
 	return s.listener.Close()
 }
 
 func (s *Server) listen() {
 	for {
 		conn, err := s.listener.Accept()
+		if s.closed {
+			fmt.Println("Server closed")
+			break
+		}
 		if err != nil {
 			log.Fatal("Connection Error: ", err)
 		}
@@ -63,10 +63,12 @@ func (s *Server) handle(c net.Conn) {
 		log.Fatal("Request error: ", err)
 	}
 
-	if hErr := s.handler(c, request); hErr != nil {
+	resp := &response.Response{Writer: c}
+
+	if hErr := s.handler(resp, request); hErr != nil {
 		request.PrintRequest()
-		response.WriteStatusLine(c, hErr.StatusCode)
-		response.WriteHeaders(c, response.GetDefaultHeaders(len(hErr.Message)))
-		response.WriteBody(c, hErr.Message)
+		resp.Status(&hErr.StatusCode)
+		resp.Body(hErr.Message)
+		resp.Write()
 	}
 }

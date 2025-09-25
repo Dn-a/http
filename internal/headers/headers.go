@@ -51,7 +51,7 @@ func (h *Headers) ParseAll(data []byte) (read int, done bool, er error) {
 		startId, endId int
 		k, v           []byte
 		err            error
-		check          bool
+		dne            bool
 	)
 
 	for i := range data {
@@ -67,14 +67,14 @@ func (h *Headers) ParseAll(data []byte) (read int, done bool, er error) {
 				h.Set(string(k), string(v))
 			} else {
 				// HEADER is EMPTY, so we assume there are no more headers to parse
-				check = true
+				dne = true
 			}
 		} else {
 			break
 		}
 		startId = endId + 2
 	}
-	return startId, check, err
+	return startId, dne, err
 }
 
 // Parse single header without \r\n

@@ -84,10 +84,12 @@ outer:
 			// If parsing reaches the last field-line, we can assume there are no other field-lines
 			// e.g.: accept: */*\r\n\r\n -> The double CRLF (\r\n\r\n) is the proper delimiter
 			// between HTTP headers and message body according to RFC 7230
-			if done && r.Headers.GetContentLength() == 0 {
-				r.state = RequestDone
-			} else if done && r.Headers.GetContentLength() > 0 {
-				r.state = RequestBody
+			if done {
+				if r.Headers.GetContentLength() == 0 {
+					r.state = RequestDone
+				} else {
+					r.state = RequestBody
+				}
 			} else if rd == 0 {
 				// when rd == 0, there isn't enough data in the buffer to build the header
 				break outer
