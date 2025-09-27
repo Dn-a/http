@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"http/internal/headers"
 	"http/internal/request"
@@ -10,6 +11,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -48,14 +51,85 @@ func handler(res *response.Response, req *request.Request) *server.HandlerError 
 		heders.Set("Transfer-Encoding", "chunked")
 		res.Write(&response.OK, heders, nil)
 
-		// Step 1: write chunk
-		bigData := generateBigData(100 * 1024 * 1024) // 100MB
+		// Step 2: write chunk
+		size := 1024 // Byte
+		bigData := generateBigData(size)
 		cunckedSize := 100
-		size := fmt.Appendf(nil, "%x\r\n", cunckedSize)
+		var end int
 		for i := 0; i < len(bigData); i += cunckedSize {
-			res.WriteChunkedBody(size, bigData[i:i+cunckedSize])
+			end = i + cunckedSize
+			if end > len(bigData) {
+				end = len(bigData)
+			}
+			res.WriteChunkedBody(bigData[i:end])
 		}
+		// Step 3: close body
 		res.WriteChunkedBodyDone()
+	case "/chunked-trailer":
+		req.PrintRequest()
+
+		// Step 1: write headers
+		h := headers.NewHeaders()
+		h.Set(headers.CONTENT_TYPE, "text/plain")
+		h.Set("Transfer-Encoding", "chunked")
+		h.Set("Trailer", "x-content-sha256, x-content-length")
+		res.Write(&response.OK, h, nil)
+
+		// Step 2: write chunk
+		size := 1024 * 1024 // Byte
+		bigData := generateBigData(size)
+		cunckedSize := 100
+		var end int
+		for i := 0; i < len(bigData); i += cunckedSize {
+			end = i + cunckedSize
+			if end > len(bigData) {
+				end = len(bigData)
+			}
+			res.WriteChunkedBody(bigData[i:end])
+		}
+
+		// Step 3: write trailer
+		trailer := headers.NewHeaders()
+		trailer.Set("X-Content-SHA256", sha256Encode(sha256.Sum256(bigData)))
+		trailer.Set("X-Content-Length", fmt.Sprintf("%d", len(bigData)))
+		res.WriteTrailers(trailer)
+
+	case "/binary":
+		req.PrintRequest()
+
+		// STEP 1: write Headers
+		h := headers.NewHeaders()
+		h.Set(headers.CONTENT_TYPE, "video/mp4")
+		h.Set("Transfer-Encoding", "chunked")
+		h.Set("Trailer", "x-content-length")
+		res.Write(&response.OK, h, nil)
+
+		// Step 2: write video
+		file, err := os.Open(filepath.Join("assets", "test.mp4"))
+		defer file.Close()
+		if err != nil {
+			fmt.Println(err)
+		}
+		fileInfo, err := file.Stat()
+		if err != nil {
+			fmt.Println(err)
+			break
+		}
+
+		size := fileInfo.Size()
+		buffer := make([]byte, 1024)
+		for {
+			_, err := file.Read(buffer)
+			if err != nil {
+				break
+			}
+			res.WriteChunkedBody(buffer)
+		}
+
+		// Step 3: write trailer
+		trailer := headers.NewHeaders()
+		trailer.Set("X-Content-Length", fmt.Sprintf("%d", size))
+		res.WriteTrailers(trailer)
 
 	default:
 		req.PrintRequest()
@@ -74,4 +148,12 @@ func generateBigData(size int) []byte {
 		data[i] = pattern[i%len(pattern)]
 	}
 	return data
+}
+
+func sha256Encode(bytes [32]byte) string {
+	var b strings.Builder
+	for _, by := range bytes {
+		b.WriteString(fmt.Sprintf("%02x", by))
+	}
+	return b.String()
 }

@@ -5,6 +5,7 @@ import (
 	"http/internal/headers"
 	"io"
 	"strconv"
+	"strings"
 )
 
 type StatusCode struct {
@@ -44,10 +45,31 @@ func (res *Response) Write(status *StatusCode, currentHeaders *headers.Headers, 
 	}
 }
 
-func (r *Response) WriteChunkedBody(size []byte, p []byte) (int, error) {
-	r.Writer.Write(size)
+func (r *Response) WriteChunkedBody(p []byte) (int, error) {
+	r.Writer.Write(fmt.Appendf(nil, "%02x\r\n", len(p)))
 	return r.Writer.Write(append(p, []byte(DELIMITER)...))
 }
+
+func (r *Response) WriteTrailers(h *headers.Headers) error {
+	var hBuilder strings.Builder
+
+	// Signal end of the body
+	hBuilder.Write([]byte{'0', '\r', '\n'})
+
+	h.ForEach(func(k, v string) {
+		hBuilder.WriteString(k)
+		hBuilder.WriteByte(':')
+		hBuilder.WriteString(v)
+		hBuilder.Write([]byte{'\r', '\n'})
+	})
+
+	// signal end of the trailer
+	hBuilder.Write([]byte{'\r', '\n'})
+
+	_, error := io.WriteString(r.Writer, hBuilder.String())
+	return error
+}
+
 func (r *Response) WriteChunkedBodyDone() (int, error) {
 	r.Writer.Write([]byte{'0', '\r', '\n', '\r', '\n'})
 	return 0, nil
@@ -58,12 +80,17 @@ func writeStatusLine(w io.Writer, statusCode *StatusCode) error {
 	return nil
 }
 
-func writeHeaders(w io.Writer, headers *headers.Headers) error {
-	headers.ForEach(func(k, v string) {
-		fmt.Fprintf(w, "%v: %v\r\n", k, v)
+func writeHeaders(w io.Writer, h *headers.Headers) (int, error) {
+	var hBuilder strings.Builder
+	h.ForEach(func(k, v string) {
+		hBuilder.WriteString(k)
+		hBuilder.Write([]byte{':', ' '})
+		hBuilder.WriteString(v)
+		hBuilder.Write([]byte{'\r', '\n'})
 	})
-	fmt.Fprint(w, "\r\n")
-	return nil
+	hBuilder.Write([]byte{'\r', '\n'})
+
+	return io.WriteString(w, hBuilder.String())
 }
 
 func writeBody(w io.Writer, data []byte) error {
