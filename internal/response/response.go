@@ -35,7 +35,7 @@ func (res *Response) Write(status *StatusCode, currentHeaders *headers.Headers, 
 
 	if currentHeaders == nil {
 		currentHeaders = GetDefaultHeaders(len(body))
-	} else if currentHeaders.GetContentLength() == 0 && len(body) > 0 {
+	} else {
 		currentHeaders.Set(headers.CONTENT_LENGTH, strconv.Itoa(len(body)))
 	}
 	writeHeaders(res.Writer, currentHeaders)
@@ -58,7 +58,7 @@ func (r *Response) WriteTrailers(h *headers.Headers) error {
 
 	h.ForEach(func(k, v string) {
 		hBuilder.WriteString(k)
-		hBuilder.WriteByte(':')
+		hBuilder.Write([]byte{':', ' '})
 		hBuilder.WriteString(v)
 		hBuilder.Write([]byte{'\r', '\n'})
 	})
