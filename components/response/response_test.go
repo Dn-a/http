@@ -3,7 +3,7 @@ package response
 import (
 	"bytes"
 	"fmt"
-	"http/internal/headers"
+	"http/components/headers"
 	"strconv"
 	"strings"
 	"testing"

@@ -2,9 +2,9 @@ package server
 
 import (
 	"fmt"
-	"http/internal/headers"
-	"http/internal/request"
-	"http/internal/response"
+	"http/components/headers"
+	"http/components/request"
+	"http/components/response"
 	"log"
 	"log/slog"
 	"net"

@@ -2,7 +2,7 @@ package response
 
 import (
 	"fmt"
-	"http/internal/headers"
+	"http/components/headers"
 	"io"
 	"strconv"
 	"strings"
@@ -35,7 +35,7 @@ func (res *Response) Write(status *StatusCode, currentHeaders *headers.Headers, 
 
 	if currentHeaders == nil {
 		currentHeaders = GetDefaultHeaders(len(body))
-	} else {
+	} else if body != nil {
 		currentHeaders.Set(headers.CONTENT_LENGTH, strconv.Itoa(len(body)))
 	}
 	writeHeaders(res.Writer, currentHeaders)
@@ -45,9 +45,21 @@ func (res *Response) Write(status *StatusCode, currentHeaders *headers.Headers, 
 	}
 }
 
+// TODO: need refactor
 func (r *Response) WriteChunkedBody(p []byte) (int, error) {
-	r.Writer.Write(fmt.Appendf(nil, "%02x\r\n", len(p)))
-	return r.Writer.Write(append(p, []byte(DELIMITER)...))
+	_, err := r.Writer.Write(fmt.Appendf(nil, "%02x\r\n", len(p))) // write chunk size
+	if err != nil {
+		return 0, err
+	}
+	_, err = r.Writer.Write(p) // write chunk
+	if err != nil {
+		return 0, err
+	}
+	_, err = r.Writer.Write([]byte(DELIMITER)) // delimiter
+	if err != nil {
+		return 0, err
+	}
+	return 0, nil
 }
 
 func (r *Response) WriteTrailers(h *headers.Headers) error {

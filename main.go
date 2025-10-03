@@ -3,10 +3,10 @@ package main
 import (
 	"crypto/sha256"
 	"fmt"
-	"http/internal/headers"
-	"http/internal/request"
-	"http/internal/response"
-	"http/internal/server"
+	"http/components/headers"
+	"http/components/request"
+	"http/components/response"
+	"http/components/server"
 	"log"
 	"log/slog"
 	"os"
@@ -76,7 +76,7 @@ func handler(res *response.Response, req *request.Request) *server.HandlerError 
 		res.Write(&response.OK, h, nil)
 
 		// Step 2: write chunk
-		size := 1024 * 1024 // Byte
+		size := 1024 // Byte
 		bigData := generateBigData(size)
 		cunckedSize := 100
 		var end int

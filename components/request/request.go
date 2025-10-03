@@ -3,7 +3,7 @@ package request
 import (
 	"bytes"
 	"fmt"
-	"http/internal/headers"
+	"http/components/headers"
 	"io"
 	"strings"
 )
